@@ -1,6 +1,6 @@
 #!/bin/bash
 
-DIR=~/data/datasets/VOC
+DIR=/opt/visualai/rkdoshi/pytorch-fcn/data/datasets/VOC
 
 mkdir -p $DIR
 cd $DIR

@@ -21,8 +21,8 @@ def main():
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     model_file = args.model_file
-
-    root = osp.expanduser('~/data/datasets')
+    
+    root = '/opt/visualai/rkdoshi/pytorch-fcn/data/datasets'
     val_loader = torch.utils.data.DataLoader(
         torchfcn.datasets.VOC2011ClassSeg(
             root, split='seg11valid', transform=True),
