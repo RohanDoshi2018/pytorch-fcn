@@ -46,8 +46,6 @@ def main():
 
     n_class = len(val_loader.dataset.class_names)
 
-    print('n_class: ' + n_class)
-
     model = torchfcn.models.FCN32s(n_class=21)
     if torch.cuda.is_available():
         model = model.cuda()
