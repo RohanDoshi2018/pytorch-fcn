@@ -13,35 +13,42 @@ import torchfcn
 import tqdm
 
 
+def get_lbl_pred(score, embed_arr):
+    n, c, h, w = score.size()
+    embeddings = embed_arr.transpose(1,0).repeat(1,h*w,1,1)
+    score = score.view(1,h*w,c,1).repeat(1,1,1,20)
+    dist = score.data - embeddings
+    dist = dist.pow(2).sum(2).sqrt()
+    min_val, indices = dist.min(2)
+    indices = indices + 1 
+    return indices.view(1,h,w).cpu().numpy()
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('model_file', help='Model path')
     parser.add_argument('-g', '--gpu', type=int, default=0)
+    parser.add_argument('-e', '--pixel_embeddings', type=int, default=-1)
     args = parser.parse_args()
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     model_file = args.model_file
-    
+    if args.pixel_embeddings > 0:
+        pixel_embeddings = args.pixel_embeddings
+    else:
+        pixel_embeddings = None
+ 
     root = '/opt/visualai/rkdoshi/pytorch-fcn/data/datasets'
     val_loader = torch.utils.data.DataLoader(
         torchfcn.datasets.VOC2011ClassSeg(
             root, split='seg11valid', transform=True),
         batch_size=1, shuffle=False,
-        num_workers=4, pin_memory=True)
+        num_workers=16, pin_memory=True)
 
     n_class = len(val_loader.dataset.class_names)
 
-    if osp.basename(model_file).startswith('fcn32s'):
-        model = torchfcn.models.FCN32s(n_class=21)
-    elif osp.basename(model_file).startswith('fcn16s'):
-        model = torchfcn.models.FCN16s(n_class=21)
-    elif osp.basename(model_file).startswith('fcn8s'):
-        if osp.basename(model_file).startswith('fcn8s-atonce'):
-            model = torchfcn.models.FCN8sAtOnce(n_class=21)
-        else:
-            model = torchfcn.models.FCN8s(n_class=21)
-    else:
-        raise ValueError
+    print('n_class: ' + n_class)
+
+    model = torchfcn.models.FCN32s(n_class=21)
     if torch.cuda.is_available():
         model = model.cuda()
     print('==> Loading %s model file: %s' %
@@ -53,19 +60,31 @@ def main():
         model.load_state_dict(model_data['model_state_dict'])
     model.eval()
 
+
+    if pixel_embeddings:
+        embed_arr = load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/label2vec_dict_' + str(pixel_embeddings))[1:,:]
+        embed_arr = torch.from_numpy(embed_arr).cuda().float()
+
     print('==> Evaluating with VOC2011ClassSeg seg11valid')
     visualizations = []
     label_trues, label_preds = [], []
     for batch_idx, (data, target) in tqdm.tqdm(enumerate(val_loader),
                                                total=len(val_loader),
                                                ncols=80, leave=False):
+        if pixel_embeddings:
+            target, target_embed = target
         if torch.cuda.is_available():
             data, target = data.cuda(), target.cuda()
         data, target = Variable(data, volatile=True), Variable(target)
+        if pixel_embeddings:
+            target_embed = Variable(target_embed.cuda())
         score = model(data)
 
         imgs = data.data.cpu()
-        lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
+        if pixel_embeddings:
+           lbl_pred = get_lbl_pred(score, embed_arr)
+        else:
+            lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
         lbl_true = target.data.cpu()
         for img, lt, lp in zip(imgs, lbl_true, lbl_pred):
             img, lt = val_loader.dataset.untransform(img, lt)
