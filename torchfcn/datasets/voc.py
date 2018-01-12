@@ -9,11 +9,7 @@ import scipy.io
 import torch
 from torch.utils import data
 import pickle
-
-# utility function for loading files with pickeled objects
-def load_obj(path, name):
-    with open(path + name + '.pkl', 'rb') as f:
-        return pickle.load(f, encoding='latin1')
+import torchfcn
 
 class VOCClassSegBase(data.Dataset):
     class_names = np.array([
@@ -49,7 +45,7 @@ class VOCClassSegBase(data.Dataset):
 
         if self.pixel_embeddings:
             embed_dim = pixel_embeddings # dimensions in each embedding
-            embeddings_dict = load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/', 'label2vec_dict_' + str(embed_dim))
+            embeddings_dict = torchfcn.utils.load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/label2vec_dict_' + str(embed_dim))
             num_embed = embeddings_dict.shape[0] #  21 = background (class 0) + labels (class 1-20)
             self.embeddings = torch.nn.Embedding(num_embed, embed_dim)
             self.embeddings.weight.requires_grad = False
@@ -119,7 +115,7 @@ class VOC2011ClassSeg(VOCClassSegBase):
         super(VOC2011ClassSeg, self).__init__(
             root, split=split, transform=transform, pixel_embeddings=pixel_embeddings)
         if self.pixel_embeddings:
-            embeddings_dict = load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/', 'label2vec_dict_' + str(pixel_embeddings))
+            embeddings_dict = torchfcn.utils.load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/label2vec_dict_' + str(pixel_embeddings))
         pkg_root = osp.join(osp.dirname(osp.realpath(__file__)), '..')
         imgsets_file = osp.join(pkg_root, 'ext/fcn.berkeleyvision.org', 'data/pascal/seg11valid.txt')
         dataset_dir = osp.join(self.root, 'VOC/VOCdevkit/VOC2012')
@@ -151,7 +147,7 @@ class SBDClassSeg(VOCClassSegBase):
         self.pixel_embeddings = pixel_embeddings
         if self.pixel_embeddings:   
             embed_dim = pixel_embeddings # dimensions in each embedding
-            embeddings_dict = load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/', 'label2vec_dict_' + str(embed_dim))
+            embeddings_dict = torchfcn.utils.load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/label2vec_dict_' + str(embed_dim))
             num_embed = embeddings_dict.shape[0] #  21 = background (class 0) + labels (class 1-20)
             self.embeddings = torch.nn.Embedding(num_embed, embed_dim)
             self.embeddings.weight.requires_grad = False

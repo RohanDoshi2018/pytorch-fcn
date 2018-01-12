@@ -78,6 +78,13 @@ def main():
         else:
             lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
         lbl_true = target.data.cpu()
+        
+        
+        # if batch_idx == 1:
+        #     num_true_bk = lbl_true[lbl_true == 0].sum()
+        #     num_pred_bk = np.sum(lbl_pred[lbl_pred == 0])
+        #     raise Exception(score.sum())
+    
         for img, lt, lp in zip(imgs, lbl_true, lbl_pred):
             img, lt = val_loader.dataset.untransform(img, lt)
             label_trues.append(lt)
