@@ -13,16 +13,6 @@ import torchfcn
 import tqdm
 
 
-def get_lbl_pred(score, embed_arr):
-    n, c, h, w = score.size()
-    embeddings = embed_arr.transpose(1,0).repeat(1,h*w,1,1)
-    score = score.view(1,h*w,c,1).repeat(1,1,1,20)
-    dist = score.data - embeddings
-    dist = dist.pow(2).sum(2).sqrt()
-    min_val, indices = dist.min(2)
-    indices = indices + 1 
-    return indices.view(1,h,w).cpu().numpy()
-
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument('model_file', help='Model path')
@@ -32,7 +22,7 @@ def main():
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(args.gpu)
     model_file = args.model_file
-    if args.pixel_embeddings > 0:
+    if args.pixel_embeddings != -1:
         pixel_embeddings = args.pixel_embeddings
     else:
         pixel_embeddings = None
@@ -40,13 +30,17 @@ def main():
     root = '/opt/visualai/rkdoshi/pytorch-fcn/data/datasets'
     val_loader = torch.utils.data.DataLoader(
         torchfcn.datasets.VOC2011ClassSeg(
-            root, split='seg11valid', transform=True),
+            root, split='seg11valid', transform=True, pixel_embeddings=pixel_embeddings),
         batch_size=1, shuffle=False,
-        num_workers=16, pin_memory=True)
+        num_workers=8, pin_memory=True)
 
     n_class = len(val_loader.dataset.class_names)
 
-    model = torchfcn.models.FCN32s(n_class=21)
+    if pixel_embeddings:
+        model = torchfcn.models.FCN32s(n_class=pixel_embeddings)
+    else:
+        model = torchfcn.models.FCN32s(n_class=21)
+    
     if torch.cuda.is_available():
         model = model.cuda()
     print('==> Loading %s model file: %s' %
@@ -60,7 +54,7 @@ def main():
 
 
     if pixel_embeddings:
-        embed_arr = load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/label2vec_dict_' + str(pixel_embeddings))[1:,:]
+        embed_arr = torchfcn.utils.load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/label2vec_dict_' + str(pixel_embeddings))
         embed_arr = torch.from_numpy(embed_arr).cuda().float()
 
     print('==> Evaluating with VOC2011ClassSeg seg11valid')
@@ -80,7 +74,7 @@ def main():
 
         imgs = data.data.cpu()
         if pixel_embeddings:
-           lbl_pred = get_lbl_pred(score, embed_arr)
+           lbl_pred = torchfcn.utils.get_lbl_pred(score, embed_arr)
         else:
             lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
         lbl_true = target.data.cpu()

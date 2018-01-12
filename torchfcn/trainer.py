@@ -34,48 +34,29 @@ def cross_entropy2d(input, target, weight=None, size_average=True):
 # mean square error between two vectors (score and target)
 # args:
 #      score -> torch.Size([1, 50, 366, 500])
-#      target -> torch.Size([1, 366, 500, 50])
+#      target -> torch.Size([1, 366, 500])
+#      target_embed -> torch.Size([1, 366, 500, 50])
 # return: 
 #     loss -> scalar
-def mse_embedding(score, target, size_average=True):
+def mse_embedding(score, target, target_embed, size_average=True):
     n, c, h, w = score.size()
 
     # target: torch.Size([1, 366, 500, 50]) -> should be torch.Size([1, 50, 366, 500])
-    target = target.permute(0,3,1,2)
-
-    # create n x h x w mask with 1's for observed classes, 0 for background using target as ground truth
-    mask = torch.sum(target, dim=1) # sum along channel (should be all zeros for background)
-    mask[mask != 0] = 1
-    mask[mask == 0] = 0
+    target_embed = target_embed.permute(0,3,1,2)
 
     # apply mask to score and target, and turn into 1d vectors for comparision
+    mask = target >= 0
     mask_tensor = mask.view(1,1,h,w).repeat(1,c,1,1)
-    score_mask = score[mask_tensor==1]
-    target_mask = target[mask_tensor==1]
-
+    score_masked = score[mask_tensor]
+    target_embed_masked = target_embed[mask_tensor]
+    
     # calculate loss on masked score and target
-    loss = F.mse_loss(score_mask, target_mask, size_average=False)
-
+    loss = F.mse_loss(score_masked, target_embed_masked, size_average=False)
+    
     if size_average:
         loss /= mask.data.sum()
 
     return loss
-
-# get nearest label prediction for pixel embeddings of size (n,c, h, w) 
-# score: torch.Size([1, 50, 366, 500])
-def get_lbl_pred(score, embed_arr):
-   n, c, h, w = score.size()
-   embeddings = embed_arr.transpose(1,0).repeat(1,h*w,1,1)
-   score = score.view(1,h*w,c,1).repeat(1,1,1,20)
-   dist = score.data - embeddings
-   dist = dist.pow(2).sum(2).sqrt()
-   min_val, indices = dist.min(2)
-   indices = indices + 1
-   return indices.view(1,h,w).cpu().numpy()
-
-def load_obj(name ):
-    with open(name + '.pkl', 'rb') as f:
-        return pickle.load(f, encoding='latin-1')
 
 class Trainer(object):
 
@@ -93,8 +74,7 @@ class Trainer(object):
         self.size_average = size_average
 
         if self.pixel_embeddings:
-           self.embeddings = load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/label2vec_dict_' + str(pixel_embeddings))
-           self.embeddings = self.embeddings[1:,:]
+           self.embeddings = torchfcn.utils.load_obj('/opt/visualai/rkdoshi/pytorch-fcn/examples/voc/label2vec_dict_' + str(pixel_embeddings))
            self.embeddings = torch.from_numpy(self.embeddings).cuda().float()
 
         if interval_validate is None:
@@ -151,24 +131,30 @@ class Trainer(object):
             data, target = Variable(data, volatile=True), Variable(target)
 
             if self.pixel_embeddings:
-                target_embed = target_embed.cuda()
+                if self.cuda:
+                    target_embed = target_embed.cuda()
                 target_embed = Variable(target_embed)
 
             score = self.model(data)
+            
+            # quick hack for getting rid of nan 
+            # score_nan_count = (score != score).sum()
+            # if score_nan_count.data > 1000:
+                # raise Exception("Too many NaNs")
+            score[score != score] = 0
+             
             if self.pixel_embeddings:
-                loss = mse_embedding(score, target_embed, size_average=self.size_average)
+                loss = mse_embedding(score, target, target_embed, size_average=self.size_average)
             else:
                 loss = cross_entropy2d(score, target, size_average=self.size_average)
-           
+
             if np.isnan(float(loss.data[0])):
-                # continue
-                # raise Exception(loss, score, target, target_embed)
                 raise ValueError('loss is nan while validating')
             val_loss += float(loss.data[0]) / len(data)
 
             imgs = data.data.cpu()
             if self.pixel_embeddings:	
-                lbl_pred = get_lbl_pred(score, self.embeddings)
+                lbl_pred = torchfcn.utils.get_lbl_pred(score, self.embeddings)
             else:
                 lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
             lbl_true = target.data.cpu()
@@ -193,7 +179,7 @@ class Trainer(object):
 
         with open(osp.join(self.out, 'log.csv'), 'a') as f:
             elapsed_time = \
-                datetime.datetime.now(pytz.timezone('Asia/Tokyo')) - \
+                datetime.datetime.now(pytz.timezone('US/Eastern')) - \
                 self.timestamp_start
             log = [self.epoch, self.iteration] + [''] * 5 + \
                   [val_loss] + list(metrics) + [elapsed_time]
@@ -211,9 +197,9 @@ class Trainer(object):
             'optim_state_dict': self.optim.state_dict(),
             'model_state_dict': self.model.state_dict(),
             'best_mean_iu': self.best_mean_iu,
-        }, osp.join(self.out, 'checkpoint.pth.tar'))
+        }, osp.join(self.out, 'checkpoint.pth'))
         if is_best:
-            shutil.copy(osp.join(self.out, 'checkpoint.pth.tar'), osp.join(self.out, 'model_best.pth.tar'))
+            shutil.copy(osp.join(self.out, 'checkpoint.pth'), osp.join(self.out, 'model_best.pth'))
         
         if training:
             self.model.train()
@@ -243,28 +229,35 @@ class Trainer(object):
             data, target = Variable(data), Variable(target)
 
             if self.pixel_embeddings:
-                target_embed = target_embed.cuda()
+                if self.cuda:
+                    target_embed = target_embed.cuda()
                 target_embed = Variable(target_embed)
 
             self.optim.zero_grad()
             score = self.model(data)
 
+            # quick hack for getting rid of nan
+            # score_nan_count = (score != score).sum()
+            # if score_nan_count > 500:
+            #    raise Exception("Too many NaNs")
+            score[score != score] = 0
+           
             if self.pixel_embeddings:
-                loss = mse_embedding(score, target_embed, size_average=self.size_average)
+                loss = mse_embedding(score, target, target_embed, size_average=self.size_average)
             else:
                 loss = cross_entropy2d(score, target, size_average=self.size_average)
 
             loss /= len(data)
+
             if np.isnan(float(loss.data[0])):
-                # continue
-                # raise Exception(loss, score, target, target_embed)
                 raise ValueError('loss is nan while training')
+
             loss.backward()
             self.optim.step()
 
             metrics = []
             if self.pixel_embeddings: 
-                lbl_pred = get_lbl_pred(score, self.embeddings)
+                lbl_pred = torchfcn.utils.get_lbl_pred(score, self.embeddings)
             else:
                 lbl_pred = score.data.max(1)[1].cpu().numpy()[:, :, :]
             lbl_true = target.data.cpu().numpy()

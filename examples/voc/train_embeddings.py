@@ -31,7 +31,7 @@ configurations = {
         lr=1.0e-10,
         momentum=0.99,
         weight_decay=.0005,
-        interval_validate=250,
+        interval_validate=1000,
     )
 }
 
@@ -42,17 +42,19 @@ def git_hash():
     return hash
 
 
-def get_log_dir(model_name, config_id, cfg):
+def get_log_dir(model_name, config_id, cfg, embed_dim=None):
     # load config
-    name = 'MODEL-%s_CFG-%03d' % (model_name, config_id)
+    name = '%s_CFG-%03d' % (model_name, config_id)
     for k, v in cfg.items():
         v = str(v)
         if '/' in v:
             continue
         name += '_%s-%s' % (k.upper(), v)
     now = datetime.datetime.now(pytz.timezone('Asia/Tokyo'))
-    name += '_VCS-%s' % git_hash()
+    # name += '_VCS-%s' % git_hash()
     name += '_TIME-%s' % now.strftime('%Y%m%d-%H%M%S')
+    if embed_dim:
+        name += '_EMBED-DIM-%d' % embed_dim
     # create out
     log_dir = osp.join(here, 'logs', name)
     if not osp.exists(log_dir):
@@ -109,7 +111,7 @@ def main():
         embed_dim = None
 
     cfg = configurations[args.config]
-    out = get_log_dir('fcn32s', args.config, cfg)
+    out = get_log_dir('fcn32s', args.config, cfg, embed_dim)
     resume = args.resume
 
     os.environ['CUDA_VISIBLE_DEVICES'] = str(gpu)

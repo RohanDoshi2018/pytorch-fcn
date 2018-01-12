@@ -1,5 +1,5 @@
 import numpy as np
-
+import pickle
 
 def _fast_hist(label_true, label_pred, n_class):
     mask = (label_true >= 0) & (label_true < n_class)
@@ -28,3 +28,19 @@ def label_accuracy_score(label_trues, label_preds, n_class):
     freq = hist.sum(axis=1) / hist.sum()
     fwavacc = (freq[freq > 0] * iu[freq > 0]).sum()
     return acc, acc_cls, mean_iu, fwavacc
+
+# get nearest label prediction for pixel embeddings of size (n,c, h, w) 
+# score: torch.Size([1, 50, 366, 500])
+def get_lbl_pred(score, embed_arr):
+   n, c, h, w = score.size()
+   n_classes = embed_arr.shape[0]
+   embeddings = embed_arr.transpose(1,0).repeat(1,h*w,1,1)
+   score = score.view(1,h*w,c,1).repeat(1,1,1,n_classes)
+   dist = score.data - embeddings
+   dist = dist.pow(2).sum(2).sqrt()
+   min_val, indices = dist.min(2)
+   return indices.view(1,h,w).cpu().numpy()
+
+def load_obj(name ):
+    with open(name + '.pkl', 'rb') as f:
+        return pickle.load(f, encoding='latin-1')
