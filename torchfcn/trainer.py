@@ -105,6 +105,7 @@ class Trainer(object):
             with open(osp.join(self.out, 'log.csv'), 'w') as f:
                 f.write(','.join(self.log_headers) + '\n')
         self.epoch = 0
+        self.validation_epoch = 0
         self.iteration = 0
         self.max_iter = max_iter
         self.best_mean_iu = 0
@@ -118,11 +119,8 @@ class Trainer(object):
         val_loss = 0
         visualizations = []
         label_trues, label_preds = [], []
-        for batch_idx, (data, target) in tqdm.tqdm(
-                        enumerate(self.val_loader), total=len(self.val_loader),
-                        desc='Valid iteration=%d' % self.iteration, ncols=80,
-                        leave=False):
 
+        for batch_idx, (data, target) in enumerate(self.val_loader):
             if self.pixel_embeddings:
                 target, target_embed = target
             
@@ -137,12 +135,6 @@ class Trainer(object):
 
             score = self.model(data)
             
-            # quick hack for getting rid of nan 
-            # score_nan_count = (score != score).sum()
-            # if score_nan_count.data > 1000:
-                # raise Exception("Too many NaNs")
-            score[score != score] = 0
-             
             if self.pixel_embeddings:
                 loss = mse_embedding(score, target, target_embed, size_average=self.size_average)
             else:
@@ -151,6 +143,10 @@ class Trainer(object):
             if np.isnan(float(loss.data[0])):
                 raise ValueError('loss is nan while validating')
             val_loss += float(loss.data[0]) / len(data)
+
+
+            print("Test Epoch %d | Iteration %d | Loss %f" % (self.validation_epoch, self.iteration, val_loss))
+            print(self.model.score_fr.weight.sum())
 
             imgs = data.data.cpu()
             if self.pixel_embeddings:	
@@ -201,6 +197,8 @@ class Trainer(object):
         if is_best:
             shutil.copy(osp.join(self.out, 'checkpoint.pth'), osp.join(self.out, 'model_best.pth'))
         
+        self.validation_epoch += 1
+
         if training:
             self.model.train()
 
@@ -209,16 +207,14 @@ class Trainer(object):
 
         n_class = len(self.train_loader.dataset.class_names)
 
-        for batch_idx, (data, target) in tqdm.tqdm(
-                enumerate(self.train_loader), total=len(self.train_loader),
-                desc='Train epoch=%d' % self.epoch, ncols=80, leave=False):
+        for batch_idx, (data, target) in enumerate(self.train_loader):
             iteration = batch_idx + self.epoch * len(self.train_loader)
             if self.iteration != 0 and (iteration - 1) != self.iteration:
                 continue  # for resuming
             self.iteration = iteration
 
-            if self.iteration % self.interval_validate == 0:
-                self.validate()
+            # if self.iteration % self.interval_validate == 0:
+            #    self.validate()
 
             assert self.model.training
 
@@ -236,12 +232,6 @@ class Trainer(object):
             self.optim.zero_grad()
             score = self.model(data)
 
-            # quick hack for getting rid of nan
-            # score_nan_count = (score != score).sum()
-            # if score_nan_count > 500:
-            #    raise Exception("Too many NaNs")
-            score[score != score] = 0
-           
             if self.pixel_embeddings:
                 loss = mse_embedding(score, target, target_embed, size_average=self.size_average)
             else:
@@ -253,6 +243,15 @@ class Trainer(object):
                 raise ValueError('loss is nan while training')
 
             loss.backward()
+
+            print("Train Epoch %d | Iteration %d | Loss %.1f | score_fr grad sum %.0f | upscore grad sum %.0f | score sum %.0f"  % 
+                            (self.epoch,
+                             self.iteration,
+                             float(loss.data[0]),
+                             float(self.model.score_fr.weight.grad.sum().data[0]),
+                             float(self.model.upscore.weight.grad.sum().data[0]),
+                             float(score.sum().data[0])
+                             ))
             self.optim.step()
 
             metrics = []
@@ -270,7 +269,7 @@ class Trainer(object):
 
             with open(osp.join(self.out, 'log.csv'), 'a') as f:
                 elapsed_time = (
-                    datetime.datetime.now(pytz.timezone('Asia/Tokyo')) -
+                    datetime.datetime.now(pytz.timezone('US/Eastern')) -
                     self.timestamp_start).total_seconds()
                 log = [self.epoch, self.iteration] + [loss.data[0]] + \
                     metrics.tolist() + [''] * 5 + [elapsed_time]
@@ -282,8 +281,7 @@ class Trainer(object):
 
     def train(self):
         max_epoch = int(math.ceil(1. * self.max_iter / len(self.train_loader)))
-        for epoch in tqdm.trange(self.epoch, max_epoch,
-                                 desc='Train', ncols=80):
+        for epoch in range(max_epoch): 
             self.epoch = epoch
             self.train_epoch()
             if self.iteration >= self.max_iter:

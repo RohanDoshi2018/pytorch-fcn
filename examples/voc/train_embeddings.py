@@ -25,13 +25,13 @@ configurations = {
 		interval_validate=4000,
     ),
 
-    # short test
+    # embeddings, minimal validation
     2: dict(
-        max_iteration=1000,
-        lr=1.0e-10,
+        max_iteration=100000,
+        lr=1.0e-15,
         momentum=0.99,
         weight_decay=.0005,
-        interval_validate=1000,
+        interval_validate=10000,
     )
 }
 
